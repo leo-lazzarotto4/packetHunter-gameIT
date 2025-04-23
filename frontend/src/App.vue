@@ -37,19 +37,44 @@
     <div v-if="error" class="error">
       <strong>Erreur :</strong> {{ error }}
     </div>
+
+    <!-- Filtrage des données mockées -->
+    <div v-if="filterBySeverityMock('low').length > 0" class="mt-3">
+      <h2>Tableau Sévérité : Low</h2>
+      <analyzeTable :suspicious-activities="filterBySeverityMock('low')" />
+    </div>
+
+    <div v-if="filterBySeverityMock('medium').length > 0" class="mt-3">
+      <h2>Tableau Sévérité : Medium</h2>
+      <analyzeTable :suspicious-activities="filterBySeverityMock('medium')" />
+    </div>
+
+    <div v-if="filterBySeverityMock('high').length > 0" class="mt-3">
+      <h2>Tableau Sévérité : High</h2>
+      <analyzeTable :suspicious-activities="filterBySeverityMock('high')" />
+    </div>
   </div>
 </template>
 
 <script>
 import axios from 'axios';
+import analyzeTable from './components/analyzeTable.vue';
+import mockData from './mockData/mockData.json';  // Importation des données mockées
 
 export default {
   data() {
     return {
-      result: null,
+      result: null, // Données provenant de l'API
       error: null,
       loading: false,
+      suspiciousActivities: [],  // Données filtrées des activités suspectes
     };
+  },
+  components: {
+    analyzeTable,
+  },
+  created() {
+    this.loadMockData();  // Charger les données mockées dès la création du composant
   },
   methods: {
     async analyzePcap() {
@@ -67,11 +92,20 @@ export default {
         this.loading = false;
       }
     },
+    // Charger les données mockées depuis le fichier JSON
+    loadMockData() {
+      // Ici, on charge les données directement depuis mockData.json
+      this.suspiciousActivities = mockData.suspicious_activities;
+    },
+    // Filtrer les activités en fonction de la sévérité
+    filterBySeverityMock(severity) {
+      return this.suspiciousActivities.filter(activity => activity.severity === severity);
+    },
   },
 };
 </script>
 
-<style>
+<style scoped>
 .app {
   font-family: Arial, sans-serif;
   padding: 2rem;
@@ -141,12 +175,11 @@ ul {
   border-radius: 8px;
   color: #0d47a1;
   text-align: left;
-  white-space: pre-wrap; /* Permet au texte de se casser au lieu de dépasser */
-  word-wrap: break-word; /* Force le texte long à être coupé si nécessaire */
-  overflow-wrap: break-word; /* Supporte également les navigateurs modernes */
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
   overflow-y: auto;
 }
-
 
 .error {
   margin-top: 2rem;
