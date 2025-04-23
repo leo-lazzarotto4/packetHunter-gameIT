@@ -1,5 +1,5 @@
 <template>
-  <div class="p-4 bg-white shadow rounded-lg analyzeTable">
+  <div class="analyzeTable">
     <DataTable 
       :value="suspiciousActivities" 
       class="p-datatable-sm"

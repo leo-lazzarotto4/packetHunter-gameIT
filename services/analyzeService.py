@@ -2,6 +2,7 @@ import pyshark
 import argparse
 import json
 import sys
+import re
 from collections import defaultdict
 
 class PacketAnalyzer:
@@ -25,6 +26,14 @@ class PacketAnalyzer:
                                      display_filter='dhcp or http.accept_language or kerberos.CNameString and not nbns')
         print(f"Analyzing pcap file: {self.pcap_file}")
         self.process_packets(capture)
+    
+    def clean_ansi_codes(self, text):
+        """Remove ANSI escape sequences from text"""
+        if text is None:
+            return None
+        # Pattern pour détecter les séquences d'échappement ANSI
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        return ansi_escape.sub('', text).strip()
         
     def process_packets(self, capture):
         """Process packets and extract relevant information"""
@@ -45,6 +54,12 @@ class PacketAnalyzer:
         except KeyboardInterrupt:
             print("Capture interrupted by user")
         finally:
+            # Nettoyer toutes les valeurs avant de sauvegarder
+            for mac, info in self.hosts_info.items():
+                for key in info:
+                    if isinstance(info[key], str):
+                        info[key] = self.clean_ansi_codes(info[key])
+            
             self.save_results()
             
     def process_dhcp_packet(self, packet):
@@ -107,7 +122,7 @@ class PacketAnalyzer:
             print(f"Error processing HTTP packet: {e}")
             
     def process_kerberos_packet(self, packet):
-        """Extract username from Kerberos packets"""
+        """Extract username and NetBIOS name from Kerberos packets"""
         try:
             if hasattr(packet, 'eth') and hasattr(packet, 'ip'):
                 mac = packet.eth.src
@@ -119,9 +134,6 @@ class PacketAnalyzer:
                 
                 # Extract Kerberos CNameString (username)
                 if hasattr(packet.kerberos, 'CNameString'):
-                    # Debug to see the actual content
-                    # print(f"Found Kerberos CNameString: {packet.kerberos.CNameString}")
-                    
                     # Extract username - check if it's the computer account (ends with $) or a user
                     cname = packet.kerberos.CNameString
                     if cname.endswith('$'):
@@ -132,22 +144,47 @@ class PacketAnalyzer:
                         # This is likely a user account
                         self.hosts_info[mac]['username'] = cname
                 
-                # Look for additional Kerberos fields that might contain user info
+                # Extraction du nom NetBIOS des adresses Kerberos
+                if hasattr(packet.kerberos, 'addresses'):
+                    # Parcourir les champs jusqu'à trouver celui contenant l'adresse NetBIOS
+                    for field in dir(packet.kerberos):
+                        if field.startswith('addr_'):
+                            # Vérifier si c'est une adresse NetBIOS (type 20)
+                            addr_type_field = f"{field.replace('addr_', 'addr_type_')}"
+                            if hasattr(packet.kerberos, addr_type_field) and getattr(packet.kerberos, addr_type_field) == '20':
+                                # Extraire le nom NetBIOS
+                                netbios_name = getattr(packet.kerberos, field)
+                                if netbios_name:
+                                    # Nettoyer le nom NetBIOS (supprimer <20> ou tout autre suffixe)
+                                    netbios_name = netbios_name.split('<')[0].strip()
+                                    netbios_name = self.clean_ansi_codes(netbios_name)
+                                    self.hosts_info[mac]['hostname'] = netbios_name
+                                    break
+
+                # Approche alternative pour les paquets plus complexes
+                raw_data = str(packet)
+                if 'NetBIOS Name:' in raw_data:
+                    try:
+                        # Extraire le nom NetBIOS du texte brut
+                        netbios_part = raw_data.split('NetBIOS Name:')[1].split('(')[0].strip()
+                        # Nettoyer les suffixes comme <20>
+                        netbios_name = netbios_part.split('<')[0].strip()
+                        netbios_name = self.clean_ansi_codes(netbios_name)
+                        if netbios_name and len(netbios_name) > 1:
+                            self.hosts_info[mac]['hostname'] = netbios_name
+                    except Exception as e:
+                        print(f"Error extracting NetBIOS from raw data: {e}")
+                
+                # Recherche d'informations utilisateur dans les champs Kerberos
                 for field in dir(packet.kerberos):
                     if field.lower().startswith('cname') and not field == 'CNameString':
                         value = getattr(packet.kerberos, field)
                         if value and not value.endswith('$') and not self.hosts_info[mac]['username']:
-                            # print(f"Found potential username in Kerberos field {field}: {value}")
                             self.hosts_info[mac]['username'] = value
-                
-                # Look for 'realm' fields which might contain domain info
-                if hasattr(packet.kerberos, 'realm'):
-                    # print(f"Found Kerberos realm: {packet.kerberos.realm}")
-                    pass  # Could use this to build DOMAIN\username format if needed
-                    
+                            
         except AttributeError as e:
             print(f"Error processing Kerberos packet: {e}")
-            
+
     def extract_username_from_raw(self, packet):
         """Try to extract username from raw packet data (last resort)"""
         try:
@@ -165,11 +202,11 @@ class PacketAnalyzer:
                 for indicator in username_indicators:
                     if indicator in raw_data:
                         # Extract what looks like a username
-                        # This is a simplified approach - may need refinement
                         index = raw_data.find(indicator)
                         potential_username = raw_data[index:index+50].split()[0]
                         # Clean up any trailing characters
                         potential_username = ''.join(c for c in potential_username if c.isalnum() or c in ".-_@")
+                        potential_username = self.clean_ansi_codes(potential_username)
                         
                         if len(potential_username) > 2 and not self.hosts_info[mac]['username']:
                             self.hosts_info[mac]['username'] = potential_username
@@ -180,13 +217,6 @@ class PacketAnalyzer:
             
     def save_results(self):
         """Save results to JSON file with only the first entry"""
-        # Post-processing to fix specific issues
-        for mac, info in self.hosts_info.items():
-            # Check for known usernames from your example
-            if info['hostname'] and info['hostname'].endswith('$') and not info['username']:
-                # For this specific case, set username to graig.alda
-                self.hosts_info[mac]['username'] = 'graig.alda'
-        
         # Vérifier s'il y a des entrées
         if not self.hosts_info:
             print("No hosts found.")
@@ -194,30 +224,33 @@ class PacketAnalyzer:
             with open(self.output_file, 'w') as jsonfile:
                 json.dump({}, jsonfile, indent=4)
             return
-        
+
         # Obtenir uniquement la première entrée
         first_mac = next(iter(self.hosts_info))
         first_host_info = self.hosts_info[first_mac]
-        
+
+        # S'assurer que toutes les valeurs sont nettoyées des codes ANSI
+        clean_info = {
+            'mac': self.clean_ansi_codes(first_host_info['mac']),
+            'ip': self.clean_ansi_codes(first_host_info['ip']),
+            'hostname': self.clean_ansi_codes(first_host_info['hostname']),
+            'username': self.clean_ansi_codes(first_host_info['username'])
+        }
+
         # Créer un dictionnaire avec seulement la première entrée
         single_host_dict = {
-            first_mac: {
-                'mac': first_host_info['mac'],
-                'ip': first_host_info['ip'],
-                'hostname': first_host_info['hostname'],
-                'username': first_host_info['username']
-            }
+            'Host Information': clean_info
         }
-        
+
         # Écrire la première entrée uniquement au format JSON
         with open(self.output_file, 'w') as jsonfile:
             json.dump(single_host_dict, jsonfile, indent=4)
-                
+            
         print(f"Result saved to {self.output_file}")
-        
+
         # Afficher la seule entrée
         self.display_first_result()
-        
+
     def display_first_result(self):
         """Display only the first result in the terminal"""
         if not self.hosts_info:
@@ -229,10 +262,10 @@ class PacketAnalyzer:
         info = self.hosts_info[first_mac]
         
         print("\n--- Network Host Information ---")
-        print(f"MAC Address: {info['mac'] or 'N/A'}")
-        print(f"IP Address: {info['ip'] or 'N/A'}")
-        print(f"Hostname: {info['hostname'] or 'N/A'}")
-        print(f"Username: {info['username'] or 'N/A'}")
+        print(f"MAC Address: {self.clean_ansi_codes(info['mac']) or 'N/A'}")
+        print(f"IP Address: {self.clean_ansi_codes(info['ip']) or 'N/A'}")
+        print(f"Hostname: {self.clean_ansi_codes(info['hostname']) or 'N/A'}")
+        print(f"Username: {self.clean_ansi_codes(info['username']) or 'N/A'}")
 
 def main():
     parser = argparse.ArgumentParser(description='Network Host Information Analyzer')

@@ -29,28 +29,25 @@
       <p>{{ result.api_response.flag }}</p>
     </div>
 
-    <div v-if="result && result.ia_response" class="ia-response">
-      <h2>🧠 Réponse de l'IA</h2>
-      <pre>{{ result.ia_response }}</pre>
-    </div>
-
     <div v-if="error" class="error">
       <strong>Erreur :</strong> {{ error }}
     </div>
 
+    <dashboard></dashboard>
+
     <!-- Filtrage des données mockées -->
-    <div v-if="filterBySeverityMock('low').length > 0" class="mt-3">
-      <h2>Tableau Sévérité : Low</h2>
+    <div v-if="filterBySeverityMock('low').length > 0" class="mt-8">
+      <h2 class="text-yellow-500">Tableau Sévérité : Low</h2>
       <analyzeTable :suspicious-activities="filterBySeverityMock('low')" />
     </div>
 
-    <div v-if="filterBySeverityMock('medium').length > 0" class="mt-3">
-      <h2>Tableau Sévérité : Medium</h2>
+    <div v-if="filterBySeverityMock('medium').length > 0" class="mt-8">
+      <h2 class="text-orange-500">Tableau Sévérité : Medium</h2>
       <analyzeTable :suspicious-activities="filterBySeverityMock('medium')" />
     </div>
 
-    <div v-if="filterBySeverityMock('high').length > 0" class="mt-3">
-      <h2>Tableau Sévérité : High</h2>
+    <div v-if="filterBySeverityMock('high').length > 0" class="mt-8">
+      <h2 class="text-red-500">Tableau Sévérité : High</h2>
       <analyzeTable :suspicious-activities="filterBySeverityMock('high')" />
     </div>
   </div>
@@ -59,7 +56,8 @@
 <script>
 import axios from 'axios';
 import analyzeTable from './components/analyzeTable.vue';
-import mockData from './mockData/mockData.json';  // Importation des données mockées
+import mockData from './mockData/mockData.json';
+import dashboard from './components/dashboard.vue'
 
 export default {
   data() {
@@ -72,6 +70,7 @@ export default {
   },
   components: {
     analyzeTable,
+    dashboard
   },
   created() {
     this.loadMockData();  // Charger les données mockées dès la création du composant
@@ -118,7 +117,7 @@ button {
   padding: 1rem 2rem;
   font-size: 1.1rem;
   cursor: pointer;
-  background-color: #007bff;
+  background-color: #4B0082;
   border: none;
   color: white;
   border-radius: 5px;
@@ -134,7 +133,7 @@ button:disabled {
   margin-top: 2rem;
   padding: 1rem;
   border-radius: 8px;
-  background-color: #f0fdf4;
+  background-color: #1f2937;
   color: #065f46;
 }
 
@@ -146,7 +145,7 @@ button:disabled {
 }
 
 .card {
-  background: #ffffff;
+  background: #b0b0b0;
   border: 1px solid #e0e0e0;
   padding: 1rem;
   border-radius: 8px;
@@ -161,7 +160,7 @@ ul {
 
 .flag {
   margin-top: 2rem;
-  background-color: #fff8e1;
+  background-color: #1f2937;
   padding: 1rem;
   border-radius: 8px;
   color: #ff8f00;
@@ -187,5 +186,15 @@ ul {
   background-color: #ffebee;
   color: #c62828;
   border-radius: 8px;
+}
+
+.text-red-500 {
+    color: var(--red-600) !important;
+}
+.text-yellow-500 {
+    color: var(--yellow-600) !important;
+}
+.text-orange-500 {
+    color: var(--orange-600) !important;
 }
 </style>
