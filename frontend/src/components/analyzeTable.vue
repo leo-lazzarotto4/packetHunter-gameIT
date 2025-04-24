@@ -7,7 +7,11 @@
       scrollHeight="400px"
       responsiveLayout="scroll"
     >
-      <Column field="timestamp" header="Heure" :body="formatDate" />
+      <Column field="timestamp" header="Heure">
+        <template #body="{ data }">
+          {{ formatDate(data.timestamp) }}
+        </template>
+      </Column>
       <Column field="type" header="Type" />
       <Column field="src_ip" header="IP Source" />
       <Column field="dst_ip" header="IP Dest." />
@@ -32,7 +36,7 @@ export default {
   },
   methods: {
     formatDate(date) {
-      return new Date(date).toLocaleString();
+      return new Date(date * 1000).toLocaleString("fr-FR");
     },
   },
 };

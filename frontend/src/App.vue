@@ -6,15 +6,19 @@
       {{ loading ? "🔍 Analyse en cours..." : "🚀 Lancer l'analyse" }}
     </button>
 
+    <p v-if="loadingSuspicious && !loading">
+      🧪 Chargement des activités suspectes en cours...
+    </p>
+
     <div v-if="result && result.analysis" class="result">
       <h2>✅ Résultat de l'analyse</h2>
       <div class="dashboard">
         <div
-          v-for="(details, mac) in result.analysis"
-          :key="mac"
+          v-for="(details) in result.analysis"
+          :key="details.mac"
           class="card"
         >
-          <h3>MAC : {{ mac }}</h3>
+          <h3>MAC : {{ details.mac }}</h3>
           <ul>
             <li><strong>IP :</strong> {{ details.ip || "N/A" }}</li>
             <li><strong>Host :</strong> {{ details.hostname || "N/A" }}</li>
@@ -33,70 +37,93 @@
       <strong>Erreur :</strong> {{ error }}
     </div>
 
-    <dashboard></dashboard>
+    <template v-if="!loadingSuspicious && suspiciousActivities.length">
+      <extractedFileTable :extracted_files="extracted_files" />
 
-    <!-- Filtrage des données mockées -->
-    <div v-if="filterBySeverityMock('low').length > 0" class="mt-8">
-      <h2 class="text-yellow-500">Tableau Sévérité : Low</h2>
-      <analyzeTable :suspicious-activities="filterBySeverityMock('low')" />
-    </div>
+      <dashboard :statistics="statistics" :suspiciousActivities="suspiciousActivities" />
 
-    <div v-if="filterBySeverityMock('medium').length > 0" class="mt-8">
-      <h2 class="text-orange-500">Tableau Sévérité : Medium</h2>
-      <analyzeTable :suspicious-activities="filterBySeverityMock('medium')" />
-    </div>
+      <div v-if="true" class="ia-response">
+        <h2>🧠 Réponse de l'analyse IA</h2>
+        <p>{{ ia_response }}</p>
+      </div>
 
-    <div v-if="filterBySeverityMock('high').length > 0" class="mt-8">
-      <h2 class="text-red-500">Tableau Sévérité : High</h2>
-      <analyzeTable :suspicious-activities="filterBySeverityMock('high')" />
-    </div>
+      <div v-if="filterBySeverityMock('high').length" class="mt-8">
+        <h2 class="text-red-500">Tableau Sévérité : High</h2>
+        <analyzeTable :suspicious-activities="filterBySeverityMock('high')" />
+      </div>
+
+      <div v-if="filterBySeverityMock('medium').length" class="mt-8">
+        <h2 class="text-orange-500">Tableau Sévérité : Medium</h2>
+        <analyzeTable :suspicious-activities="filterBySeverityMock('medium')" />
+      </div>
+
+      <div v-if="filterBySeverityMock('low').length" class="mt-8">
+        <h2 class="text-yellow-500">Tableau Sévérité : Low</h2>
+        <analyzeTable :suspicious-activities="filterBySeverityMock('low')" />
+      </div>
+    </template>
   </div>
 </template>
 
 <script>
 import axios from 'axios';
 import analyzeTable from './components/analyzeTable.vue';
+import dashboard from './components/dashboard.vue';
+import extractedFileTable from './components/extractedFileTable.vue';
 import mockData from './mockData/mockData.json';
-import dashboard from './components/dashboard.vue'
 
 export default {
   data() {
     return {
-      result: null, // Données provenant de l'API
+      result: null,
       error: null,
       loading: false,
-      suspiciousActivities: [],  // Données filtrées des activités suspectes
+      loadingSuspicious: false,
+      suspiciousActivities: [],
+      statistics: [],
+      extracted_files: [],
+      ia_response: "",
     };
   },
   components: {
     analyzeTable,
-    dashboard
-  },
-  created() {
-    this.loadMockData();  // Charger les données mockées dès la création du composant
+    dashboard,
+    extractedFileTable,
   },
   methods: {
     async analyzePcap() {
       this.loading = true;
+      this.loadingSuspicious = true;
       this.result = null;
       this.error = null;
 
       try {
-        const response = await axios.get('http://localhost:3000/analyze');
-        this.result = response.data;
-        console.log("Réponse reçue :", response.data);
+        const [analyzeRes, suspiciousRes] = await Promise.all([
+          axios.get('http://localhost:3000/analyze'),
+          axios.get('http://localhost:3000/malware-analysis'),
+        ]);
+
+        this.result = analyzeRes.data;
+
+        if (suspiciousRes.data && suspiciousRes.data.suspicious_activities) {
+          this.suspiciousActivities = suspiciousRes.data.suspicious_activities;
+          this.statistics = suspiciousRes.data.statistics || [];
+          this.extracted_files = suspiciousRes.data.extracted_files || [];
+          this.ia_response = suspiciousRes.data.ia_summary || "";
+        } else {
+          throw new Error("Format inattendu des données 'malware-analysis'");
+        }
       } catch (err) {
         this.error = err.response?.data?.error || err.message;
+        console.warn("Fallback aux données mockées.");
+        this.suspiciousActivities = mockData.suspicious_activities;
+        this.statistics = mockData.statistics;
+        this.extracted_files = mockData.extracted_files;
       } finally {
         this.loading = false;
+        this.loadingSuspicious = false;
       }
     },
-    // Charger les données mockées depuis le fichier JSON
-    loadMockData() {
-      // Ici, on charge les données directement depuis mockData.json
-      this.suspiciousActivities = mockData.suspicious_activities;
-    },
-    // Filtrer les activités en fonction de la sévérité
     filterBySeverityMock(severity) {
       return this.suspiciousActivities.filter(activity => activity.severity === severity);
     },
@@ -108,7 +135,7 @@ export default {
 .app {
   font-family: Arial, sans-serif;
   padding: 2rem;
-  max-width: 900px;
+  max-width: 1200px;
   margin: auto;
   text-align: center;
 }
@@ -167,19 +194,6 @@ ul {
   font-weight: bold;
 }
 
-.ia-response {
-  margin-top: 2rem;
-  background-color: #e3f2fd;
-  padding: 1rem;
-  border-radius: 8px;
-  color: #0d47a1;
-  text-align: left;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  overflow-y: auto;
-}
-
 .error {
   margin-top: 2rem;
   padding: 1rem;
@@ -189,12 +203,25 @@ ul {
 }
 
 .text-red-500 {
-    color: var(--red-600) !important;
+  color: var(--red-600) !important;
 }
 .text-yellow-500 {
-    color: var(--yellow-600) !important;
+  color: var(--yellow-600) !important;
 }
 .text-orange-500 {
-    color: var(--orange-600) !important;
+  color: var(--orange-600) !important;
 }
+
+.ia-response {
+  margin-top: 2rem;
+  background-color: #1f2937;
+  padding: 1rem;
+  border-radius: 8px;
+  text-align: left;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  overflow-y: auto;
+}
+
 </style>

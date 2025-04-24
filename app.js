@@ -57,7 +57,36 @@ setupSwagger(app);
  *                 error:
  *                   type: string
  *                   description: Détail de l'erreur
- */
+ *
+* /malware-analysis:
+*   get:
+*     summary: Lance une analyse malware sur un fichier PCAP
+*     description: Exécute le script Python de détection de malware et retourne les résultats sous forme de JSON.
+*     responses:
+*       200:
+*         description: Résultat de l'analyse malware
+*         content:
+*           application/json:
+*             schema:
+*               type: object
+*               properties:
+*                 success:
+*                   type: boolean
+*                   description: Indique si l'analyse a réussi
+*                 malware_analysis:
+*                   type: object
+*                   description: Résultats de l'analyse renvoyés par le script Python
+*       500:
+*         description: Erreur lors de l'analyse
+*         content:
+*           application/json:
+*             schema:
+*               type: object
+*               properties:
+*                 error:
+*                   type: string
+*                   description: Message d'erreur détaillé
+*/
 
 // Utilitaire pour savoir si l'IP est privée
 const isPrivateIP = (ip) => {
@@ -156,6 +185,79 @@ app.get('/analyze', async (req, res) => {
     res.status(500).json({ error: "Erreur lors de l'analyse ou de l'envoi des données" });
   }
 });
+
+app.get('/malware-analysis', async (req, res) => {
+  try {
+    const samplePath = path.join(__dirname, 'latest.pcap');
+    const outputDir = path.join(__dirname, './malwareAnalysisService/analysis_results');
+    const scriptPath = path.join(__dirname, 'services', 'malware_analysis.py');
+
+    const vtKey = process.env.VTOTAL_KEY || '';
+
+    const args = [
+      scriptPath,
+      '-o', outputDir,
+      '-d',
+      '--vtotal-key', vtKey,
+      samplePath
+    ];
+
+    execFile('python3', args, async (error) => {
+      if (error) {
+        console.error('❌ Erreur analyse malware:', error.message);
+        return res.status(500).json({ error: error.message });
+      }
+
+      try {
+        const files = fs.readdirSync(outputDir);
+
+        // 🔍 Étape 1 : Ne garder QUE les bons fichiers
+        const reports = files
+          .filter(name => /^\d{8}_\d{6}_latest_report\.json$/.test(name))
+          .map(name => ({
+            name,
+            timestamp: parseInt(name.slice(0, 15).replace('_', ''), 10)
+          }))
+          .sort((a, b) => b.timestamp - a.timestamp);
+
+        if (reports.length === 0) {
+          return res.status(500).json({ error: "Aucun rapport JSON trouvé" });
+        }
+
+        // ✅ Étape 2 : Utiliser le dernier rapport
+        const latestReport = reports[0];
+        const resultPath = path.join(outputDir, latestReport.name);
+
+        // ✅ Étape 3 : Lire son contenu
+        const data = fs.readFileSync(resultPath, 'utf8');
+        const parsed = JSON.parse(data);
+
+        // ✅ Étape 4 : Enrichir avec l'IA
+        const iaSummary = await enrichWithIA(parsed);
+
+        // ✅ Étape 5 : Réponse enrichie
+        const enrichedReport = {
+          ...parsed,
+          ia_summary: iaSummary,
+          report_name: latestReport.name
+        };
+
+        res.json(enrichedReport);
+
+      } catch (err) {
+        console.error('❌ Erreur lecture/parsing JSON:', err.message);
+        res.status(500).json({ error: 'Erreur lecture ou parsing du rapport' });
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ Erreur générale :", error.message);
+    res.status(500).json({ error: "Erreur lors de l'exécution du script malware" });
+  }
+});
+
+
+
 
 app.listen(PORT, () => {
   console.log(`✅ Serveur lancé sur : http://localhost:${PORT}`);
