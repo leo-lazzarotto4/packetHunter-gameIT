@@ -170,6 +170,7 @@ app.get('/analyze', async (req, res) => {
 
     const response = await axios.post(`${process.env.PCAP_API_URL}/pcap/submit`, payload, {
       headers: {
+        'Content-Type': 'application/json'
       }
     });
 

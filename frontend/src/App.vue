@@ -2,14 +2,21 @@
   <div class="app">
     <h1>🕵️‍♂️ Analyseur de fichiers PCAP</h1>
 
-    <button @click="analyzePcap" :disabled="loading">
-      {{ loading ? "🔍 Analyse en cours..." : "🚀 Lancer l'analyse" }}
+    <button @click="analyzePcap" :disabled="loading || loadingSuspicious">
+      {{ loading || loadingSuspicious ? "🔍 Analyse en cours..." : "🚀 Lancer l'analyse" }}
     </button>
 
+    <!-- Message de chargement pendant l'analyse initiale -->
+    <p v-if="loading" class="loading-message">
+      🔄 L'analyse des fichiers PCAP est en cours...
+    </p>
+
+    <!-- Message de chargement pendant la recherche des activités suspectes -->
     <p v-if="loadingSuspicious && !loading">
       🧪 Chargement des activités suspectes en cours...
     </p>
 
+    <!-- Affichage des résultats d'analyse après le premier appel API -->
     <div v-if="result && result.analysis" class="result">
       <h2>✅ Résultat de l'analyse</h2>
       <div class="dashboard">
@@ -28,21 +35,23 @@
       </div>
     </div>
 
+    <!-- Affichage du flag trouvé -->
     <div v-if="result && result.api_response" class="flag">
       <h2>🏁 FLAG trouvé</h2>
       <p>{{ result.api_response.flag }}</p>
     </div>
 
+    <!-- Affichage des erreurs en cas d'échec -->
     <div v-if="error" class="error">
       <strong>Erreur :</strong> {{ error }}
     </div>
 
+    <!-- Affichage des activités suspectes et autres données après l'analyse -->
     <template v-if="!loadingSuspicious && suspiciousActivities.length">
       <extractedFileTable :extracted_files="extracted_files" />
-
       <dashboard :statistics="statistics" :suspiciousActivities="suspiciousActivities" />
 
-      <div v-if="true" class="ia-response">
+      <div v-if="ia_response" class="ia-response">
         <h2>🧠 Réponse de l'analyse IA</h2>
         <p>{{ ia_response }}</p>
       </div>
@@ -98,12 +107,13 @@ export default {
       this.error = null;
 
       try {
-        const [analyzeRes, suspiciousRes] = await Promise.all([
-          axios.get('http://localhost:3000/analyze'),
-          axios.get('http://localhost:3000/malware-analysis'),
-        ]);
-
+        // 1️⃣ Appel rapide : /analyze
+        const analyzeRes = await axios.get('http://localhost:3000/analyze');
         this.result = analyzeRes.data;
+        this.loading = false;
+
+        // 2️⃣ Appel plus long : /malware-analysis
+        const suspiciousRes = await axios.get('http://localhost:3000/malware-analysis');
 
         if (suspiciousRes.data && suspiciousRes.data.suspicious_activities) {
           this.suspiciousActivities = suspiciousRes.data.suspicious_activities;
@@ -113,6 +123,7 @@ export default {
         } else {
           throw new Error("Format inattendu des données 'malware-analysis'");
         }
+
       } catch (err) {
         this.error = err.response?.data?.error || err.message;
         console.warn("Fallback aux données mockées.");
@@ -120,7 +131,6 @@ export default {
         this.statistics = mockData.statistics;
         this.extracted_files = mockData.extracted_files;
       } finally {
-        this.loading = false;
         this.loadingSuspicious = false;
       }
     },
@@ -224,4 +234,10 @@ ul {
   overflow-y: auto;
 }
 
+.loading-message {
+  font-size: 1.2rem;
+  color: #ffeb3b;
+  font-weight: bold;
+  margin-top: 20px;
+}
 </style>
